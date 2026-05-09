@@ -5,7 +5,7 @@ Handles database restore functionality.
 import os
 import logging
 import asyncpg
-from typing import Optional
+from typing import Callable
 from aiogram import Router, F, types, Bot
 from aiogram.fsm.context import FSMContext
 
@@ -122,7 +122,12 @@ async def handle_wrong_dump_file(message: types.Message, state: FSMContext) -> N
 
 @router.message(DatabaseStates.waiting_for_restore_confirmation)
 @admin_only
-async def handle_restore_confirmation(message: types.Message, state: FSMContext, pool: asyncpg.Pool) -> None:
+async def handle_restore_confirmation(
+    message: types.Message,
+    state: FSMContext,
+    pool: asyncpg.Pool,
+    set_pool: Callable[[asyncpg.Pool], None],
+) -> None:
     """Handle database restore confirmation."""
     try:
         if message.text != "ПОДТВЕРЖДАЮ":
@@ -171,7 +176,9 @@ async def handle_restore_confirmation(message: types.Message, state: FSMContext,
         admin_id = get_user_id(message)
         logger.info(f"Starting database restore by admin {admin_id}: {dump_file_name}")
 
-        restore_success, restore_error = await restore_from_sql(dump_file_path, pool)
+        restore_success, restore_error, restored_pool = await restore_from_sql(dump_file_path, pool)
+        if restored_pool is not None:
+            set_pool(restored_pool)
 
         # Clean up dump file
         try:
