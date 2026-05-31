@@ -75,10 +75,16 @@ async def main() -> None:
     pool = await create_pool()
     await init_db(pool)
 
+    def set_pool(new_pool: asyncpg.Pool) -> None:
+        """Replace the application database pool after maintenance operations."""
+        global pool
+        pool = new_pool
+
     # Inject dependencies into handlers
     async def inject_pool_middleware(handler: Any, event: Any, data: Dict[str, Any]) -> Any:
         """Middleware to inject database pool into handlers."""
         data['pool'] = pool
+        data['set_pool'] = set_pool
         data['bot'] = bot
         return await handler(event, data)
 

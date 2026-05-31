@@ -7,7 +7,7 @@ import os
 import tempfile
 import aiohttp
 import asyncpg
-from typing import Tuple
+from typing import Optional, Tuple
 
 from ..config import DB_CONFIG
 
@@ -152,7 +152,7 @@ async def create_backup() -> Tuple[str | None, str]:
         return None, f"❌ Ошибка создания резервной копии: {str(e)}"
 
 
-async def restore_from_sql(sql_dump_path: str, pool: asyncpg.Pool) -> Tuple[bool, str]:
+async def restore_from_sql(sql_dump_path: str, pool: asyncpg.Pool) -> Tuple[bool, str, Optional[asyncpg.Pool]]:
     """
     Restore database from SQL dump file using psql.
 
@@ -161,8 +161,11 @@ async def restore_from_sql(sql_dump_path: str, pool: asyncpg.Pool) -> Tuple[bool
         pool: Database connection pool
 
     Returns:
-        tuple: (success, error_message) - success is False if restore failed
+        tuple: (success, error_message, new_pool) - success is False if restore failed.
+        new_pool should replace the old application pool whenever it is returned,
+        because the old pool is closed before running psql.
     """
+    new_pool: Optional[asyncpg.Pool] = None
     try:
         # Close database pool connections
         if pool:
@@ -204,19 +207,19 @@ async def restore_from_sql(sql_dump_path: str, pool: asyncpg.Pool) -> Tuple[bool
         if process.returncode != 0:
             error_msg = stderr.decode() if stderr else "Unknown psql error"
             logger.error(f"Database restore failed: {error_msg}")
-            return False, f"❌ Ошибка восстановления БД: {error_msg}"
+            return False, f"❌ Ошибка восстановления БД: {error_msg}", new_pool
 
         # Test connection to ensure database is working
         try:
             async with new_pool.acquire() as conn:
                 await conn.fetchval("SELECT 1")
             logger.info("Database restore completed successfully")
-            return True, ""
+            return True, "", new_pool
 
         except Exception as e:
             logger.error(f"Database connection test failed after restore: {e}")
-            return False, f"❌ БД восстановлена, но соединение недоступно: {str(e)}"
+            return False, f"❌ БД восстановлена, но соединение недоступно: {str(e)}", new_pool
 
     except Exception as e:
         logger.error(f"Error during database restore: {e}")
-        return False, f"❌ Ошибка восстановления БД: {str(e)}"
+        return False, f"❌ Ошибка восстановления БД: {str(e)}", new_pool
